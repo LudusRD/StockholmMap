@@ -326,18 +326,61 @@ cancelNameBtn.addEventListener('click', () => {
 saveNameBtn.addEventListener('click', async () => {
   if(!nameEditTarget) return;
   if(!canEdit()){ notify('Нет прав редактировать карту'); nameEditor.classList.add('hidden'); nameEditTarget=null; return; }
+
   const newLabel = nameInput.value.trim();
   const newAddr = addrEditInput.value.trim();
+
+  let newLat = nameEditTarget.data.lat;
+  let newLng = nameEditTarget.data.lng;
+  let finalAddr = newAddr;
+
+  // если адрес поменялся, делаем геокодинг
+  if(newAddr && newAddr !== nameEditTarget.data.address){
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(newAddr)}`);
+      const data = await res.json();
+      if(data && data.length){
+        newLat = +data[0].lat;
+        newLng = +data[0].lon;
+        finalAddr = data[0].display_name;
+        // перемещаем маркер
+        nameEditTarget.marker.setLatLng([newLat,newLng]);
+        map.setView([newLat,newLng], map.getZoom());
+      } else {
+        notify('Адрес не найден, позиция метки не изменена');
+      }
+    } catch(e){
+      console.warn('Ошибка геокодирования', e);
+      notify('Ошибка геокодирования, позиция метки не изменена');
+    }
+  }
+
+  // обновляем локальные данные
   nameEditTarget.data.label = newLabel || nameEditTarget.data.label;
-  nameEditTarget.data.address = newAddr || nameEditTarget.data.address;
+  nameEditTarget.data.address = finalAddr;
+  nameEditTarget.data.lat = newLat;
+  nameEditTarget.data.lng = newLng;
+
+  // обновляем popup и tooltip
   nameEditTarget.marker.bindPopup(nameEditTarget.data.label || '');
-  nameEditTarget.marker.setTooltipContent(`${nameEditTarget.data.label || '(без названия)'}${nameEditTarget.data.address ? '<br>' + nameEditTarget.data.address : ''}`);
-  await updateMarker(nameEditTarget.id, { label: nameEditTarget.data.label, address: nameEditTarget.data.address });
+  nameEditTarget.marker.setTooltipContent(`${nameEditTarget.data.label || '(без названия)'}<br>${nameEditTarget.data.address || ''}`);
+
+  // обновляем Firebase
+  await updateMarker(nameEditTarget.id, {
+    label: nameEditTarget.data.label,
+    address: nameEditTarget.data.address,
+    lat: newLat,
+    lng: newLng
+  });
+
   renderList();
   nameEditor.classList.add('hidden');
   nameEditor.setAttribute('aria-hidden','true');
   nameEditTarget = null;
+
+  notify('Метка обновлена');
 });
+
 
 // ====== Reverse geocode ======
 async function fetchAddress(lat, lon){

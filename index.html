@@ -1,32 +1,60 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <title>Общая карта Стокгольма с Google логином</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
-body { margin:0; font-family:Arial,sans-serif; }
-#controls { padding:10px; background:#f5f5f5; display:flex; gap:8px; position:relative; z-index:1000; align-items:center; }
-#container { display:flex; }
-#map { width:70%; height:calc(100vh - 52px); }
-#sidebar { width:30%; border-left:1px solid #ddd; padding:10px; overflow-y:auto; }
-.marker-item { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; font-size:14px; }
-.marker-item span { cursor:pointer; }
-.emoji-picker, .name-editor { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; border:1px solid #ccc; padding:10px; z-index:3000; }
-.emoji-picker { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
-.emoji-picker span { font-size:22px; cursor:pointer; text-align:center; }
-.name-editor { display:flex; flex-direction:column; gap:6px; }
-.suggestions { position:absolute; top:46px; left:10px; right:170px; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000; }
-.suggestion { padding:6px; cursor:pointer; }
-.suggestion:hover { background:#eee; }
-.hidden { display:none; }
-button { cursor:pointer; }
-#authPanel { display:flex; gap:6px; align-items:center; margin-bottom:6px; padding:8px; background:#fafafa; border-bottom:1px solid #eee; }
-#roleInfo { font-size:13px; color:#444; margin-left:8px; }
-/* уведомления слева снизу */
-#notifications { position:fixed; bottom:10px; left:10px; max-width:250px; display:flex; flex-direction:column; gap:6px; z-index:5000; }
-.notification { background:rgba(50,50,50,0.9); color:white; padding:8px 12px; border-radius:6px; font-size:13px; opacity:0.95; }
+:root{
+  --bg:#ffffff;
+  --panel:#fafafa;
+  --text:#111;
+  --muted:#666;
+  --accent:#2b7cff;
+  --notif-bg: rgba(50,50,50,0.9);
+}
+body{ margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+#controls{ padding:10px; background:var(--panel); display:flex; gap:8px; position:relative; z-index:1000; align-items:center; }
+#container{ display:flex; height:calc(100vh - 52px); }
+#map{ width:70%; height:100%; }
+#sidebar{ width:30%; border-left:1px solid #ddd; padding:10px; overflow-y:auto; background:var(--panel); }
+.marker-item{ display:flex; flex-direction:column; gap:4px; margin-bottom:8px; font-size:14px; }
+.marker-item span{ cursor:pointer; }
+.emoji-picker, .name-editor { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--bg); border:1px solid #ccc; padding:10px; z-index:3000; box-shadow:0 6px 18px rgba(0,0,0,0.15); border-radius:8px; }
+.emoji-picker{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+.emoji-picker span{ font-size:22px; cursor:pointer; text-align:center; padding:6px; border-radius:6px; user-select:none; }
+.name-editor{ display:flex; flex-direction:column; gap:8px; min-width:260px; }
+.suggestions{ position:absolute; top:46px; left:10px; right:170px; background:var(--bg); border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000; }
+.suggestion{ padding:6px; cursor:pointer; }
+.suggestion:hover{ background:#eee; }
+.hidden{ display:none; }
+button{ cursor:pointer; padding:6px 8px; border-radius:6px; border:1px solid #ccc; background:white; }
+button.primary{ background:var(--accent); color:white; border-color:transparent; }
+#authPanel{ display:flex; gap:8px; align-items:center; margin-bottom:6px; padding:8px; background:var(--panel); border-bottom:1px solid #eee; }
+#roleInfo{ font-size:13px; color:var(--muted); margin-left:8px; }
+.controls-input{ flex:1; padding:6px; border-radius:6px; border:1px solid #ccc; }
+
+/* notifications left-bottom */
+#notifications{ position:fixed; bottom:12px; left:12px; max-width:300px; display:flex; flex-direction:column; gap:8px; z-index:5000; }
+.notification{ background:var(--notif-bg); color:white; padding:8px 12px; border-radius:8px; font-size:13px; opacity:0.98; }
+
+/* small responsive */
+@media (max-width:900px){
+  #map{ width:100%; height:60vh; }
+  #sidebar{ width:100%; height:40vh; border-left:none; border-top:1px solid #ddd; }
+  #container{ flex-direction:column; height:calc(100vh - 104px); }
+}
+
+/* dark theme */
+body.dark{
+  --bg:#0f1113;
+  --panel:#0b0c0d;
+  --text:#e6edf3;
+  --muted:#9aa5b1;
+  --accent:#4ea3ff;
+  --notif-bg: rgba(20,20,20,0.95);
+}
 </style>
 </head>
 <body>
@@ -35,12 +63,15 @@ button { cursor:pointer; }
   <button id="logoutBtn" class="hidden">Выйти</button>
   <span id="userInfo"></span>
   <span id="roleInfo"></span>
+  <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+    <button id="themeToggleBtn">Тёмная тема</button>
+  </div>
 </div>
 
 <div id="controls">
-  <input id="address" type="text" placeholder="Введите адрес" style="flex:1; padding:6px;">
+  <input id="address" class="controls-input" type="text" placeholder="Введите адрес">
   <button id="searchBtn">Найти</button>
-  <button id="addBtn">Добавить</button>
+  <button id="addBtn" class="primary">Добавить</button>
   <div id="suggestions" class="suggestions hidden"></div>
 </div>
 
@@ -52,10 +83,20 @@ button { cursor:pointer; }
   </div>
 </div>
 
-<div id="emojiPicker" class="emoji-picker hidden"></div>
-<div id="nameEditor" class="name-editor hidden">
-  <input id="nameInput" type="text" placeholder="Введите название">
-  <button id="saveNameBtn">Сохранить</button>
+<!-- picker и редактор -->
+<div id="emojiPicker" class="emoji-picker hidden" aria-hidden="true"></div>
+
+<div id="nameEditor" class="name-editor hidden" aria-hidden="true">
+  <label>Название
+    <input id="nameInput" type="text" placeholder="Введите название" style="padding:6px; border-radius:6px; border:1px solid #ccc;">
+  </label>
+  <label>Адрес
+    <input id="addrEditInput" type="text" placeholder="Редактировать адрес" style="padding:6px; border-radius:6px; border:1px solid #ccc;">
+  </label>
+  <div style="display:flex; gap:8px; justify-content:flex-end;">
+    <button id="cancelNameBtn">Отмена</button>
+    <button id="saveNameBtn" class="primary">Сохранить</button>
+  </div>
 </div>
 
 <div id="notifications"></div>
@@ -71,7 +112,7 @@ const ALLOWED_EDITORS = [
   'marcenuksasa32@gmail.com'
 ];
 
-// ====== Firebase ======
+// ====== Firebase конфиг ======
 const firebaseConfig = {
   apiKey: "AIzaSyAqFaNbBW-28tZ9ZOobC1mQvuAI_NWu9ms",
   authDomain: "stockholmsmap.firebaseapp.com",
@@ -99,23 +140,28 @@ const markerList = document.getElementById('markerList');
 const emojiPicker = document.getElementById('emojiPicker');
 const nameEditor = document.getElementById('nameEditor');
 const nameInput = document.getElementById('nameInput');
+const addrEditInput = document.getElementById('addrEditInput');
 const saveNameBtn = document.getElementById('saveNameBtn');
+const cancelNameBtn = document.getElementById('cancelNameBtn');
 const notifications = document.getElementById('notifications');
+const themeToggleBtn = document.getElementById('themeToggleBtn');
 
 // ====== Уведомления ======
-function notify(msg){
+function notify(msg, timeout = 4000){
   const div = document.createElement('div');
   div.className = 'notification';
   div.textContent = msg;
   notifications.appendChild(div);
-  setTimeout(()=> div.remove(),4000);
+  setTimeout(()=> {
+    if(div.parentNode) div.parentNode.removeChild(div);
+  }, timeout);
 }
 
 // ====== Auth provider ======
 const provider = new firebase.auth.GoogleAuthProvider();
 
 // ====== Карта ======
-let markers = [];
+let markers = []; // {id, marker, data}
 let emojiEditTarget = null;
 let nameEditTarget = null;
 const EMOJIS = ['📍','🏠','🏢','🏪','☕','🍽️','🛒','🏥','🏫','🚇','🚌','🚲','🎉','⭐','❤️','🔥'];
@@ -127,7 +173,7 @@ osm.addTo(map);
 L.control.layers({'OSM':osm,'Спутник':satellite}).addTo(map);
 
 function createIcon(emoji){
-  return L.divIcon({className:'emoji-marker',html:`<div style="font-size:24px">${emoji}</div>`,iconSize:[24,24],iconAnchor:[12,24]});
+  return L.divIcon({className:'emoji-marker', html:`<div style="font-size:24px">${emoji}</div>`, iconSize:[28,28], iconAnchor:[14,28]});
 }
 
 function canEdit(){
@@ -137,8 +183,11 @@ function canEdit(){
 
 function updateRoleInfo(){
   const u = auth.currentUser;
-  if(!u){ roleInfo.textContent = ' - просмотр карты'; logoutBtn.classList.add('hidden'); loginGoogleBtn.classList.remove('hidden'); }
-  else {
+  if(!u){
+    roleInfo.textContent = ' - просмотр карты';
+    logoutBtn.classList.add('hidden');
+    loginGoogleBtn.classList.remove('hidden');
+  } else {
     const allowed = ALLOWED_EDITORS.includes(u.email);
     roleInfo.textContent = allowed ? ' - вы можете редактировать карту' : ' - нет прав на редактирование';
     logoutBtn.classList.remove('hidden');
@@ -146,28 +195,50 @@ function updateRoleInfo(){
   }
 }
 
-// ====== Список ======
+// ====== Рендер списка ======
 function renderList(){
   markerList.innerHTML = '';
   markers.forEach(m => {
     const div = document.createElement('div');
     div.className = 'marker-item';
     const span = document.createElement('span');
-    span.innerHTML = `${m.data.label || '(без названия)'}<br><small>${m.data.address||''}</small>`;
+    span.innerHTML = `${m.data.label || '(без названия)'}<br><small style="color:var(--muted)">${m.data.address||''}</small>`;
     span.onclick = () => map.setView([m.data.lat,m.data.lng],16);
-    const editBtn = document.createElement('button'); editBtn.textContent = '✎'; editBtn.onclick = () => {
+    const controls = document.createElement('div');
+    controls.style.display = 'flex';
+    controls.style.gap = '6px';
+    controls.style.marginTop = '6px';
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '✎';
+    editBtn.title = 'Редактировать название/адрес';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       if(!canEdit()){ notify('Нет прав редактировать карту'); return; }
       openNameEditor(m.id);
-    };
-    const emojiBtn = document.createElement('button'); emojiBtn.textContent = '😀'; emojiBtn.onclick = () => {
+    });
+
+    const emojiBtn = document.createElement('button');
+    emojiBtn.textContent = '😀';
+    emojiBtn.title = 'Выбрать эмодзи';
+    emojiBtn.className = 'emoji-open-btn';
+    emojiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       if(!canEdit()){ notify('Нет прав редактировать карту'); return; }
       openEmojiPicker(m.id);
-    };
-    const delBtn = document.createElement('button'); delBtn.textContent = '✕'; delBtn.onclick = () => {
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '✕';
+    delBtn.title = 'Удалить метку';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       if(!canEdit()){ notify('Нет прав удалять метки'); return; }
       removeMarker(m.id);
-    };
-    div.append(span,editBtn,emojiBtn,delBtn);
+    });
+
+    controls.append(editBtn, emojiBtn, delBtn);
+    div.append(span, controls);
     markerList.appendChild(div);
   });
 }
@@ -181,51 +252,92 @@ function addMarkerToFirebase(data){
 
 function removeMarker(id){
   db.ref('markers/'+id).remove();
+  notify('Метка удалена');
 }
 function updateMarker(id,data){
   db.ref('markers/'+id).update(data);
+  notify('Метка обновлена');
 }
 
-// ====== Emoji / name editor ======
+// ====== Emoji picker ======
 function openEmojiPicker(id){
   emojiEditTarget = markers.find(m => m.id===id);
   if(!emojiEditTarget) return;
   emojiPicker.classList.remove('hidden');
+  emojiPicker.setAttribute('aria-hidden','false');
 }
 function renderEmojiPicker(){
   emojiPicker.innerHTML = '';
   EMOJIS.forEach(e => {
     const span = document.createElement('span');
     span.textContent = e;
-    span.onclick = () => {
-      if(!emojiEditTarget){ emojiPicker.classList.add('hidden'); return; }
-      if(!canEdit()){ notify('Нет прав редактировать карту'); emojiPicker.classList.add('hidden'); return; }
+    span.title = e;
+    span.addEventListener('click', async (evt) => {
+      evt.stopPropagation();
+      if(!emojiEditTarget){ emojiPicker.classList.add('hidden'); emojiPicker.setAttribute('aria-hidden','true'); return; }
+      if(!canEdit()){ notify('Нет прав редактировать карту'); emojiPicker.classList.add('hidden'); emojiPicker.setAttribute('aria-hidden','true'); return; }
       emojiEditTarget.data.emoji = e;
       emojiEditTarget.marker.setIcon(createIcon(e));
-      updateMarker(emojiEditTarget.id,{emoji:e});
+      await updateMarker(emojiEditTarget.id,{emoji:e});
       emojiPicker.classList.add('hidden');
+      emojiPicker.setAttribute('aria-hidden','true');
       renderList();
-    };
+    });
     emojiPicker.appendChild(span);
   });
 }
+
+// Закрывать emojiPicker при клике вне
+document.addEventListener('click', (e) => {
+  const target = e.target;
+  // если клик не внутри picker и не по кнопке открытия эмодзи - закрыть
+  if(!emojiPicker.contains(target) && !target.closest('.emoji-open-btn')){
+    if(!emojiPicker.classList.contains('hidden')){
+      emojiPicker.classList.add('hidden');
+      emojiPicker.setAttribute('aria-hidden','true');
+    }
+  }
+});
+// Закрыть по Esc
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape'){
+    emojiPicker.classList.add('hidden');
+    emojiPicker.setAttribute('aria-hidden','true');
+    nameEditor.classList.add('hidden');
+    nameEditor.setAttribute('aria-hidden','true');
+  }
+});
+
+// ====== Name & Address editor ======
 function openNameEditor(id){
   nameEditTarget = markers.find(m => m.id===id);
   if(!nameEditTarget) return;
   nameInput.value = nameEditTarget.data.label || '';
+  addrEditInput.value = nameEditTarget.data.address || '';
   nameEditor.classList.remove('hidden');
+  nameEditor.setAttribute('aria-hidden','false');
   nameInput.focus();
 }
-saveNameBtn.onclick = () => {
+cancelNameBtn.addEventListener('click', () => {
+  nameEditor.classList.add('hidden');
+  nameEditor.setAttribute('aria-hidden','true');
+  nameEditTarget = null;
+});
+saveNameBtn.addEventListener('click', async () => {
   if(!nameEditTarget) return;
-  if(!canEdit()){ notify('Нет прав редактировать карту'); nameEditor.classList.add('hidden'); return; }
-  nameEditTarget.data.label = nameInput.value.trim() || nameEditTarget.data.label;
-  nameEditTarget.marker.setPopupContent(nameEditTarget.data.label || '');
-  updateMarker(nameEditTarget.id,{label:nameEditTarget.data.label});
+  if(!canEdit()){ notify('Нет прав редактировать карту'); nameEditor.classList.add('hidden'); nameEditTarget=null; return; }
+  const newLabel = nameInput.value.trim();
+  const newAddr = addrEditInput.value.trim();
+  nameEditTarget.data.label = newLabel || nameEditTarget.data.label;
+  nameEditTarget.data.address = newAddr || nameEditTarget.data.address;
+  nameEditTarget.marker.bindPopup(nameEditTarget.data.label || '');
+  nameEditTarget.marker.setTooltipContent(`${nameEditTarget.data.label || '(без названия)'}${nameEditTarget.data.address ? '<br>' + nameEditTarget.data.address : ''}`);
+  await updateMarker(nameEditTarget.id, { label: nameEditTarget.data.label, address: nameEditTarget.data.address });
   renderList();
   nameEditor.classList.add('hidden');
+  nameEditor.setAttribute('aria-hidden','true');
   nameEditTarget = null;
-};
+});
 
 // ====== Reverse geocode ======
 async function fetchAddress(lat, lon){
@@ -237,12 +349,15 @@ async function fetchAddress(lat, lon){
   return '';
 }
 
-// ====== Добавление маркера локально ======
+// ====== Локальное добавление метки ======
 function addMarkerLocally(id, lat, lng, label, address, emoji, uid){
-  const marker = L.marker([lat,lng],{icon:createIcon(emoji||'📍')}).addTo(map);
+  const marker = L.marker([lat,lng], { icon: createIcon(emoji || '📍') }).addTo(map);
   marker.bindPopup(label || '');
-  marker.bindTooltip(`${label || '(без названия)'}${address ? '<br>' + address : ''}`, {direction:'top', offset:[0,-10], opacity:0.95});
+  const tooltip = `${label || '(без названия)'}${address ? '<br>' + address : ''}`;
+  marker.bindTooltip(tooltip, { direction:'top', offset:[0,-10], opacity:0.95 });
+
   marker.on('mouseover', async () => {
+    // если нет адреса - пробуем получить
     const local = markers.find(x => x.id === id);
     if(local && !local.data.address){
       const addr = await fetchAddress(lat,lng);
@@ -257,21 +372,22 @@ function addMarkerLocally(id, lat, lng, label, address, emoji, uid){
   });
   marker.on('mouseout', ()=> marker.closeTooltip());
   marker.on('click', ()=> marker.openPopup());
-  markers.push({id, marker, data:{lat, lng, label, address, emoji, uid}});
+
+  markers.push({ id, marker, data:{ lat, lng, label, address, emoji, uid } });
   renderList();
 }
 
-// ====== Добавление маркера по координатам ======
+// ====== Добавление маркера на сервер ======
 function addMarker(lat,lng,label,address){
   const user = auth.currentUser;
   if(!user){ notify('Сначала войдите'); return; }
   if(!canEdit()){ notify('Нет прав добавлять метки'); return; }
-  const data = {lat, lng, label, emoji:'📍', address, uid:user.uid, createdBy:user.email};
+  const data = { lat, lng, label, emoji:'📍', address, uid:user.uid, createdBy:user.email };
   addMarkerToFirebase(data);
   notify(`Метка "${label}" добавлена`);
 }
 
-// ====== Клик по карте ======
+// ====== Клик по карте (добавление) ======
 map.on('click', e => {
   const user = auth.currentUser;
   if(!user){ notify('Сначала войдите'); return; }
@@ -286,16 +402,16 @@ map.on('click', e => {
 
 // ====== Firebase listener ======
 db.ref('markers').on('value', async snapshot => {
-  markers.forEach(m=> map.removeLayer(m.marker));
+  markers.forEach(m => map.removeLayer(m.marker));
   markers = [];
-  const promises = [];
   snapshot.forEach(child => {
-    const d = child.val(); const id = child.key;
+    const d = child.val();
+    const id = child.key;
     addMarkerLocally(id, d.lat, d.lng, d.label, d.address, d.emoji, d.uid);
   });
 });
 
-// ====== Поиск адреса и подсказки ======
+// ====== Поиск адреса и подсказки (Nominatim) ======
 let suggestTimer;
 async function fetchSuggestions(){
   clearTimeout(suggestTimer);
@@ -322,6 +438,7 @@ async function fetchSuggestions(){
   }, 300);
 }
 function hideSuggestions(){ suggestions.classList.add('hidden'); }
+
 searchBtn.addEventListener('click', async () => {
   const q = addressInput.value.trim();
   if(!q) return;
@@ -344,7 +461,9 @@ addBtn.addEventListener('click', async () => {
     const data = await res.json();
     if(!data.length) return notify('Адрес не найден');
     const d = data[0];
-    const name = prompt('Название метки?'); 
+    if(!auth.currentUser){ notify('Сначала войдите'); return; }
+    if(!canEdit()){ notify('Нет прав добавлять метки'); return; }
+    const name = prompt('Название метки?');
     if(!name) return notify('Метка не добавлена, нет названия');
     addMarker(+d.lat, +d.lon, name.trim(), d.display_name);
     map.setView([+d.lat,+d.lon],16);
@@ -357,17 +476,33 @@ loginGoogleBtn.onclick = () => {
     .then(result => { const user = result.user; notify('Вход успешен: ' + (user.displayName || user.email)); })
     .catch(error => { notify('Ошибка входа: ' + error.message); });
 };
-logoutBtn.onclick = () => { auth.signOut().then(()=> notify('Вы вышли')); };
+logoutBtn.onclick = () => {
+  auth.signOut().then(()=> notify('Вы вышли'));
+};
 
-// ====== Auth state ======
+// ====== Состояние пользователя ======
 auth.onAuthStateChanged(user => {
-  if(user){ userInfo.textContent = 'Привет, ' + (user.displayName || user.email); } 
-  else { userInfo.textContent = ''; }
+  if(user){ userInfo.textContent = 'Привет, ' + (user.displayName || user.email); } else { userInfo.textContent = ''; }
   updateRoleInfo();
 });
 
-// ====== Emoji picker ======
+// ====== Инициализация emoji picker ======
 renderEmojiPicker();
+
+// ====== Тема ======
+function setDark(value){
+  if(value) document.body.classList.add('dark'); else document.body.classList.remove('dark');
+  localStorage.setItem('map_dark_theme', value ? '1' : '0');
+}
+themeToggleBtn.addEventListener('click', () => {
+  const isDark = document.body.classList.contains('dark');
+  setDark(!isDark);
+});
+(function initTheme(){
+  const val = localStorage.getItem('map_dark_theme');
+  setDark(val === '1');
+})();
+
 </script>
 </body>
 </html>

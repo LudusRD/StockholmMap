@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
 body { margin:0; font-family:Arial,sans-serif; }
-#controls { padding:10px; background:#f5f5f5; display:flex; gap:8px; position:relative; z-index:1000; }
+#controls { padding:10px; background:#f5f5f5; display:flex; gap:8px; position:relative; z-index:1000; align-items:center; }
 #container { display:flex; }
 #map { width:70%; height:calc(100vh - 52px); }
 #sidebar { width:30%; border-left:1px solid #ddd; padding:10px; overflow-y:auto; }
@@ -17,24 +17,30 @@ body { margin:0; font-family:Arial,sans-serif; }
 .emoji-picker { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
 .emoji-picker span { font-size:22px; cursor:pointer; text-align:center; }
 .name-editor { display:flex; flex-direction:column; gap:6px; }
-.suggestions { position:absolute; top:46px; left:10px; right:110px; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000; }
+.suggestions { position:absolute; top:46px; left:10px; right:170px; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000; }
 .suggestion { padding:6px; cursor:pointer; }
 .suggestion:hover { background:#eee; }
 .hidden { display:none; }
 button { cursor:pointer; }
-#authPanel { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+#authPanel { display:flex; gap:6px; align-items:center; margin-bottom:6px; padding:8px; background:#fafafa; border-bottom:1px solid #eee; }
+#roleInfo { font-size:13px; color:#444; margin-left:8px; }
 </style>
 </head>
 <body>
 <div id="authPanel">
   <button id="loginGoogleBtn">Войти через Google</button>
+  <button id="logoutBtn" class="hidden">Выйти</button>
   <span id="userInfo"></span>
+  <span id="roleInfo"></span>
 </div>
+
 <div id="controls">
-  <input id="address" type="text" placeholder="Введите адрес">
+  <input id="address" type="text" placeholder="Введите адрес" style="flex:1; padding:6px;">
   <button id="searchBtn">Найти</button>
+  <button id="addBtn">Добавить</button>
   <div id="suggestions" class="suggestions hidden"></div>
 </div>
+
 <div id="container">
   <div id="map"></div>
   <div id="sidebar">
@@ -42,6 +48,7 @@ button { cursor:pointer; }
     <div id="markerList"></div>
   </div>
 </div>
+
 <div id="emojiPicker" class="emoji-picker hidden"></div>
 <div id="nameEditor" class="name-editor hidden">
   <input id="nameInput" type="text" placeholder="Введите название">
@@ -53,6 +60,14 @@ button { cursor:pointer; }
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
+// ====== Настройки ======
+// Список Google-почт, которые имеют право менять карту
+const ALLOWED_EDITORS = [
+  'allowed1@gmail.com',
+  'allowed2@example.com'
+  // добавь сюда нужные почты
+];
+
 // ====== Firebase конфиг ======
 const firebaseConfig = {
   apiKey: "AIzaSyAqFaNbBW-28tZ9ZOobC1mQvuAI_NWu9ms",
@@ -70,41 +85,24 @@ const db = firebase.database();
 
 // ====== DOM элементы ======
 const loginGoogleBtn = document.getElementById('loginGoogleBtn');
+const logoutBtn = document.getElementById('logoutBtn');
 const userInfo = document.getElementById('userInfo');
+const roleInfo = document.getElementById('roleInfo');
 const addressInput = document.getElementById('address');
 const suggestions = document.getElementById('suggestions');
 const searchBtn = document.getElementById('searchBtn');
+const addBtn = document.getElementById('addBtn');
 const markerList = document.getElementById('markerList');
 const emojiPicker = document.getElementById('emojiPicker');
 const nameEditor = document.getElementById('nameEditor');
 const nameInput = document.getElementById('nameInput');
 const saveNameBtn = document.getElementById('saveNameBtn');
 
-// ====== Google Provider ======
+// ====== Auth provider ======
 const provider = new firebase.auth.GoogleAuthProvider();
 
-// ====== Аутентификация ======
-auth.onAuthStateChanged(user => {
-  if(user){
-    userInfo.textContent = 'Привет, ' + (user.displayName || user.email);
-  } else {
-    userInfo.textContent = '';
-  }
-});
-
-loginGoogleBtn.onclick = () => {
-  auth.signInWithPopup(provider)
-    .then(result => {
-      const user = result.user;
-      alert('Вход успешен: ' + (user.displayName || user.email));
-    })
-    .catch(error => {
-      alert('Ошибка входа: ' + error.message);
-    });
-};
-
-// ====== Метки ======
-let markers = [];
+// ====== Карта и данные ======
+let markers = []; // [{id, marker, data}]
 let emojiEditTarget = null;
 let nameEditTarget = null;
 const EMOJIS = ['📍','🏠','🏢','🏪','☕','🍽️','🛒','🏥','🏫','🚇','🚌','🚲','🎉','⭐','❤️','🔥'];
@@ -119,43 +117,77 @@ function createIcon(emoji){
   return L.divIcon({className:'emoji-marker',html:`<div style="font-size:24px">${emoji}</div>`,iconSize:[24,24],iconAnchor:[12,24]});
 }
 
+function canEdit(){
+  const u = auth.currentUser;
+  return u && ALLOWED_EDITORS.includes(u.email);
+}
+
+function updateRoleInfo(){
+  const u = auth.currentUser;
+  if(!u){ roleInfo.textContent = ' - просмотр карты'; logoutBtn.classList.add('hidden'); loginGoogleBtn.classList.remove('hidden'); }
+  else {
+    const allowed = ALLOWED_EDITORS.includes(u.email);
+    roleInfo.textContent = allowed ? ' - вы можете редактировать карту' : ' - нет прав на редактирование';
+    logoutBtn.classList.remove('hidden');
+    loginGoogleBtn.classList.add('hidden');
+  }
+}
+
+// ====== Рендер списка меток ======
 function renderList(){
   markerList.innerHTML = '';
   markers.forEach(m => {
     const div = document.createElement('div');
     div.className = 'marker-item';
     const span = document.createElement('span');
-    span.innerHTML = `${m.data.label}<br><small>${m.data.address||''}</small>`;
+    span.innerHTML = `${m.data.label || '(без названия)'}<br><small>${m.data.address||''}</small>`;
     span.onclick = () => map.setView([m.data.lat,m.data.lng],16);
-    const editBtn = document.createElement('button'); editBtn.textContent = '✎'; editBtn.onclick = () => openNameEditor(m.id);
-    const emojiBtn = document.createElement('button'); emojiBtn.textContent = '😀'; emojiBtn.onclick = () => openEmojiPicker(m.id);
-    const delBtn = document.createElement('button'); delBtn.textContent = '✕'; delBtn.onclick = () => removeMarker(m.id);
+    const editBtn = document.createElement('button'); editBtn.textContent = '✎'; editBtn.onclick = () => {
+      if(!canEdit()){ alert('У вас нет прав редактировать карту'); return; }
+      openNameEditor(m.id);
+    };
+    const emojiBtn = document.createElement('button'); emojiBtn.textContent = '😀'; emojiBtn.onclick = () => {
+      if(!canEdit()){ alert('У вас нет прав редактировать карту'); return; }
+      openEmojiPicker(m.id);
+    };
+    const delBtn = document.createElement('button'); delBtn.textContent = '✕'; delBtn.onclick = () => {
+      if(!canEdit()){ alert('У вас нет прав редактировать карту'); return; }
+      removeMarker(m.id);
+    };
     div.append(span,editBtn,emojiBtn,delBtn);
     markerList.appendChild(div);
   });
 }
 
+// ====== Firebase CRUD ======
 function addMarkerToFirebase(data){
   const newRef = db.ref('markers').push();
   data.id = newRef.key;
   newRef.set(data);
 }
 
-function removeMarker(id){ db.ref('markers/'+id).remove(); }
-function updateMarker(id,data){ db.ref('markers/'+id).update(data); }
+function removeMarker(id){
+  db.ref('markers/'+id).remove();
+}
+function updateMarker(id,data){
+  db.ref('markers/'+id).update(data);
+}
 
+// ====== Emoji / name editor ======
 function openEmojiPicker(id){
   emojiEditTarget = markers.find(m => m.id===id);
   if(!emojiEditTarget) return;
   emojiPicker.classList.remove('hidden');
 }
-
 function renderEmojiPicker(){
   emojiPicker.innerHTML = '';
   EMOJIS.forEach(e => {
     const span = document.createElement('span');
     span.textContent = e;
     span.onclick = () => {
+      if(!emojiEditTarget){ emojiPicker.classList.add('hidden'); return; }
+      // проверка прав на случай изменения через UI
+      if(!canEdit()){ alert('У вас нет прав редактировать карту'); emojiPicker.classList.add('hidden'); return; }
       emojiEditTarget.data.emoji = e;
       emojiEditTarget.marker.setIcon(createIcon(e));
       updateMarker(emojiEditTarget.id,{emoji:e});
@@ -165,94 +197,226 @@ function renderEmojiPicker(){
     emojiPicker.appendChild(span);
   });
 }
-
 function openNameEditor(id){
   nameEditTarget = markers.find(m => m.id===id);
   if(!nameEditTarget) return;
-  nameInput.value = nameEditTarget.data.label;
+  nameInput.value = nameEditTarget.data.label || '';
   nameEditor.classList.remove('hidden');
   nameInput.focus();
 }
-
 saveNameBtn.onclick = () => {
-  if(nameEditTarget){
-    nameEditTarget.data.label = nameInput.value.trim() || nameEditTarget.data.label;
-    nameEditTarget.marker.setPopupContent(nameEditTarget.data.label);
-    updateMarker(nameEditTarget.id,{label:nameEditTarget.data.label});
-    renderList();
-    nameEditor.classList.add('hidden');
-    nameEditTarget = null;
-  }
+  if(!nameEditTarget) return;
+  if(!canEdit()){ alert('У вас нет прав редактировать карту'); nameEditor.classList.add('hidden'); return; }
+  nameEditTarget.data.label = nameInput.value.trim() || nameEditTarget.data.label;
+  nameEditTarget.marker.setPopupContent(nameEditTarget.data.label || '');
+  updateMarker(nameEditTarget.id,{label:nameEditTarget.data.label});
+  renderList();
+  nameEditor.classList.add('hidden');
+  nameEditTarget = null;
 };
 
-// Добавление метки по клику
-map.on('click', e => {
-  const user = auth.currentUser;
-  if(!user){ alert('Сначала войдите'); return; }
-  const name = prompt('Название метки?');
-  if(!name) return;
-  addMarker(e.latlng.lat, e.latlng.lng, name, '');
-});
+// ====== Помощь: получить адрес через reverse geocode ======
+async function fetchAddress(lat, lon){
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=0&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+    const json = await res.json();
+    if(json && json.display_name) return json.display_name;
+  } catch(e){ console.warn('reverse geocode error', e); }
+  return '';
+}
 
-function addMarker(lat,lng,label,address){
-  const marker = L.marker([lat,lng],{icon:createIcon('📍')}).addTo(map);
-  marker.bindPopup(label);
-  const user = auth.currentUser;
-  const data = {lat,lng,label,emoji:'📍',address,uid:user.uid};
-  const id = 'temp_'+Date.now();
-  markers.push({id,marker,data});
-  addMarkerToFirebase(data);
+// ====== Добавление маркера на карту (локально) ======
+function addMarkerLocallyAndMaybeFirebase(id, lat, lng, label, address, emoji, uid){
+  const marker = L.marker([lat,lng],{icon:createIcon(emoji || '📍')}).addTo(map);
+  marker.bindPopup(label || '');
+  // tooltip content
+  const tooltipText = `${label || '(без названия)'}${address ? '<br>' + address : ''}`;
+  marker.bindTooltip(tooltipText, {direction:'top', offset:[0,-10], opacity:0.95});
+  // show tooltip on hover
+  marker.on('mouseover', async () => {
+    // if no address in data, try reverse geocode once and update DB & local
+    const local = markers.find(x => x.id === id);
+    if(local && !local.data.address){
+      const addr = await fetchAddress(lat,lng);
+      if(addr){
+        local.data.address = addr;
+        // обновим tooltip и список и базу
+        marker.setTooltipContent(`${local.data.label || '(без названия)'}<br>${addr}`);
+        updateMarker(id,{address:addr});
+        renderList();
+      }
+    }
+    marker.openTooltip();
+  });
+  marker.on('mouseout', ()=> marker.closeTooltip());
+  // клик - открыть попап
+  marker.on('click', ()=> marker.openPopup());
+  markers.push({id, marker, data:{lat, lng, label, address, emoji, uid}});
   renderList();
 }
 
-// Слушатель Firebase
-db.ref('markers').on('value', snapshot => {
-  markers.forEach(m => map.removeLayer(m.marker));
+// ====== Добавление маркера по координатам с проверкой прав ======
+function addMarker(lat,lng,label,address){
+  const user = auth.currentUser;
+  if(!user){ alert('Сначала войдите'); return; }
+  if(!canEdit()){ alert('У вас нет прав добавлять метки'); return; }
+  const data = {lat, lng, label, emoji:'📍', address, uid:user.uid, createdBy:user.email};
+  addMarkerToFirebase(data);
+}
+
+// ====== Обработчик клика по карте (как раньше), но с правами ======
+map.on('click', e => {
+  const user = auth.currentUser;
+  if(!user){ alert('Сначала войдите'); return; }
+  if(!canEdit()){ alert('У вас нет прав добавлять метки'); return; }
+  const name = prompt('Название метки? (оставьте пустым, чтобы использовать адрес)');
+  // попробуем получить ближайший адрес
+  fetchAddress(e.latlng.lat, e.latlng.lng).then(addr => {
+    const label = name ? name.trim() : (addr || 'Метка');
+    const address = addr || '';
+    const data = {lat:e.latlng.lat, lng:e.latlng.lng, label, emoji:'📍', address, uid:user.uid, createdBy:user.email};
+    addMarkerToFirebase(data);
+  });
+});
+
+// ====== Слушатель Firebase: обновляем список маркеров ======
+db.ref('markers').on('value', async snapshot => {
+  // очистка
+  markers.forEach(m=> map.removeLayer(m.marker));
   markers = [];
+  // прочитаем все
+  const promises = [];
   snapshot.forEach(child => {
     const d = child.val();
-    const marker = L.marker([d.lat,d.lng],{icon:createIcon(d.emoji)}).addTo(map);
-    marker.bindPopup(d.label);
-    markers.push({id:child.key, marker, data:d});
+    const id = child.key;
+    const marker = L.marker([d.lat,d.lng],{icon:createIcon(d.emoji||'📍')}).addTo(map);
+    marker.bindPopup(d.label || '');
+    const tooltipText = `${d.label || '(без названия)'}${d.address ? '<br>' + d.address : ''}`;
+    marker.bindTooltip(tooltipText, {direction:'top', offset:[0,-10], opacity:0.95});
+    // hover: если нет address, сделаем reverse и обновим
+    marker.on('mouseover', async () => {
+      if(!d.address){
+        const addr = await fetchAddress(d.lat,d.lng);
+        if(addr){
+          d.address = addr;
+          updateMarker(id,{address:addr});
+          marker.setTooltipContent(`${d.label || '(без названия)'}<br>${addr}`);
+          renderList();
+        }
+      }
+      marker.openTooltip();
+    });
+    marker.on('mouseout', ()=> marker.closeTooltip());
+    marker.on('click', ()=> marker.openPopup());
+    markers.push({id, marker, data:d});
+    // если адрес отсутствует, положим задачу на reverse для обновления заранее (чтобы tooltip был)
+    if(!d.address){
+      promises.push((async ()=>{
+        const addr = await fetchAddress(d.lat,d.lng);
+        if(addr){
+          d.address = addr;
+          // обновим только если еще в базе нет адреса (защита от гонки)
+          updateMarker(id,{address:addr});
+          marker.setTooltipContent(`${d.label || '(без названия)'}<br>${addr}`);
+        }
+      })());
+    }
   });
+  // дождёмся всех reverse запросов (опционально)
+  try { await Promise.all(promises); } catch(e){/*ignore*/ }
   renderList();
 });
 
-// ====== Поиск адреса ======
+// ====== Поиск адреса и подсказки (Nominatim) ======
 let suggestTimer;
 async function fetchSuggestions(){
   clearTimeout(suggestTimer);
   const q = addressInput.value.trim();
   if(q.length < 3) return hideSuggestions();
-  suggestTimer = setTimeout(async()=>{
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    suggestions.innerHTML = '';
-    data.forEach(d => {
-      const div = document.createElement('div');
-      div.className = 'suggestion';
-      div.textContent = d.display_name;
-      div.onclick = () => { addressInput.value=d.display_name; map.setView([+d.lat,+d.lon],16); hideSuggestions(); };
-      suggestions.appendChild(div);
-    });
-    suggestions.classList.toggle('hidden', !data.length);
-  },400);
+  suggestTimer = setTimeout(async ()=>{
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      suggestions.innerHTML = '';
+      data.forEach(d => {
+        const div = document.createElement('div');
+        div.className = 'suggestion';
+        div.textContent = d.display_name;
+        div.onclick = () => {
+          addressInput.value = d.display_name;
+          map.setView([+d.lat,+d.lon],16);
+          hideSuggestions();
+        };
+        suggestions.appendChild(div);
+      });
+      suggestions.classList.toggle('hidden', !data.length);
+    } catch(e){ console.warn('suggestions error', e); }
+  }, 300);
 }
-
 function hideSuggestions(){ suggestions.classList.add('hidden'); }
 
-searchBtn.addEventListener('click', async()=>{
+searchBtn.addEventListener('click', async () => {
   const q = addressInput.value.trim();
   if(!q) return;
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
-  const data = await res.json();
-  if(!data.length) return alert('Адрес не найден');
-  map.setView([+data[0].lat,+data[0].lon],16);
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if(!data.length) return alert('Адрес не найден');
+    map.setView([+data[0].lat,+data[0].lon],16);
+  } catch(e){ alert('Ошибка поиска'); }
 });
 
 addressInput.addEventListener('input', fetchSuggestions);
 document.addEventListener('click', e => { if(!suggestions.contains(e.target) && e.target!==addressInput) hideSuggestions(); });
 
+// ====== Добавить по введённому адресу ======
+addBtn.addEventListener('click', async () => {
+  const q = addressInput.value.trim();
+  if(!q) return alert('Введите адрес');
+  // ищем первый результат
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if(!data.length) return alert('Адрес не найден');
+    const d = data[0];
+    // проверка прав
+    const user = auth.currentUser;
+    if(!user){ alert('Сначала войдите'); return; }
+    if(!canEdit()){ alert('У вас нет прав добавлять метки'); return; }
+    // label по умолчанию - display_name
+    const label = d.display_name;
+    addMarker(+d.lat, +d.lon, label, d.display_name);
+    // центрируем
+    map.setView([+d.lat, +d.lon], 16);
+  } catch(e){ alert('Ошибка при геокодировании'); console.warn(e); }
+});
+
+// ====== Кнопки вход/выход ======
+loginGoogleBtn.onclick = () => {
+  auth.signInWithPopup(provider)
+    .then(result => {
+      const user = result.user;
+      alert('Вход успешен: ' + (user.displayName || user.email));
+    })
+    .catch(error => {
+      alert('Ошибка входа: ' + error.message);
+    });
+};
+logoutBtn.onclick = () => {
+  auth.signOut().then(()=>{ alert('Вы вышли'); });
+};
+
+// ====== Состояние пользователя ======
+auth.onAuthStateChanged(user => {
+  if(user){
+    userInfo.textContent = 'Привет, ' + (user.displayName || user.email);
+  } else {
+    userInfo.textContent = '';
+  }
+  updateRoleInfo();
+});
+
+// ====== Инициализация emoji picker ======
 renderEmojiPicker();
 </script>
 </body>

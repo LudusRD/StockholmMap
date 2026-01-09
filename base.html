@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Общая карта Стокгольма с логином</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+body { margin:0; font-family:Arial,sans-serif; }
+#controls { padding:10px; background:#f5f5f5; display:flex; gap:8px; position:relative; z-index:1000; }
+#container { display:flex; }
+#map { width:70%; height:calc(100vh - 52px); }
+#sidebar { width:30%; border-left:1px solid #ddd; padding:10px; overflow-y:auto; }
+.marker-item { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; font-size:14px; }
+.marker-item span { cursor:pointer; }
+.emoji-picker, .name-editor { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; border:1px solid #ccc; padding:10px; z-index:3000; }
+.emoji-picker { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+.emoji-picker span { font-size:22px; cursor:pointer; text-align:center; }
+.name-editor { display:flex; flex-direction:column; gap:6px; }
+.suggestions { position:absolute; top:46px; left:10px; right:110px; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000; }
+.suggestion { padding:6px; cursor:pointer; }
+.suggestion:hover { background:#eee; }
+.hidden { display:none; }
+button { cursor:pointer; }
+#authPanel { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+#authPanel input { padding:4px; }
+</style>
+</head>
+<body>
+<div id="authPanel">
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Пароль">
+  <button id="loginBtn">Войти</button>
+  <button id="registerBtn">Регистрация</button>
+  <span id="userInfo"></span>
+</div>
+<div id="controls">
+  <input id="address" type="text" placeholder="Введите адрес">
+  <button id="searchBtn">Найти</button>
+  <div id="suggestions" class="suggestions hidden"></div>
+</div>
+<div id="container">
+  <div id="map"></div>
+  <div id="sidebar">
+    <strong>Метки</strong>
+    <div id="markerList"></div>
+  </div>
+</div>
+<div id="emojiPicker" class="emoji-picker hidden"></div>
+<div id="nameEditor" class="name-editor hidden">
+  <input id="nameInput" type="text" placeholder="Введите название">
+  <button id="saveNameBtn">Сохранить</button>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+// Firebase конфиг
+const firebaseConfig = {
+  apiKey: "AIzaSyAqFaNbBW-28tZ9ZOobC1mQvuAI_NWu9ms",
+  authDomain: "stockholmsmap.firebaseapp.com",
+  databaseURL: "https://stockholmsmap-default-rtdb.firebaseio.com",
+  projectId: "stockholmsmap",
+  storageBucket: "stockholmsmap.firebasestorage.app",
+  messagingSenderId: "893591145593",
+  appId: "1:893591145593:web:1efcdbf16243ee8171d8a8",
+  measurementId: ""
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+
+// Элементы DOM
+const emailInput=document.getElementById('email');
+const passwordInput=document.getElementById('password');
+const loginBtn=document.getElementById('loginBtn');
+const registerBtn=document.getElementById('registerBtn');
+const userInfo=document.getElementById('userInfo');
+const addressInput=document.getElementById('address');
+const suggestions=document.getElementById('suggestions');
+const searchBtn=document.getElementById('searchBtn');
+const markerList=document.getElementById('markerList');
+const emojiPicker=document.getElementById('emojiPicker');
+const nameEditor=document.getElementById('nameEditor');
+const nameInput=document.getElementById('nameInput');
+const saveNameBtn=document.getElementById('saveNameBtn');
+
+let markers=[]; let emojiEditTarget=null; let nameEditTarget=null;
+const EMOJIS=['📍','🏠','🏢','🏪','☕','🍽️','🛒','🏥','🏫','🚇','🚌','🚲','🎉','⭐','❤️','🔥'];
+
+// Инициализация карты
+const map = L.map('map').setView([59.3293,18.0686],12);
+const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM'});
+const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© ESRI'});
+osm.addTo(map);
+L.control.layers({'OSM':osm,'Спутник':satellite}).addTo(map);
+
+// Аутентификация
+auth.onAuthStateChanged(user=>{
+  if(user){
+    userInfo.textContent = 'Привет, '+user.email;
+  }else{
+    userInfo.textContent='';
+  }
+});
+loginBtn.onclick=()=>{
+  auth.signInWithEmailAndPassword(emailInput.value,passwordInput.value)
+    .then(()=>alert('Вход успешен')).catch(e=>alert(e.message));
+};
+registerBtn.onclick=()=>{
+  auth.createUserWithEmailAndPassword(emailInput.value,passwordInput.value)
+    .then(()=>alert('Регистрация успешна')).catch(e=>alert(e.message));
+};
+
+// Функции для меток
+function createIcon(emoji){return L.divIcon({className:'emoji-marker',html:`<div style="font-size:24px">${emoji}</div>`,iconSize:[24,24],iconAnchor:[12,24]});}
+function renderList(){ markerList.innerHTML=''; markers.forEach(m=>{
+  const div=document.createElement('div'); div.className='marker-item';
+  const span=document.createElement('span'); span.innerHTML=`${m.data.label}<br><small>${m.data.address||''}</small>`;
+  span.onclick=()=>map.setView([m.data.lat,m.data.lng],16);
+  const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.onclick=()=>openNameEditor(m.id);
+  const emojiBtn=document.createElement('button'); emojiBtn.textContent='😀'; emojiBtn.onclick=()=>openEmojiPicker(m.id);
+  const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.onclick=()=>removeMarker(m.id);
+  div.append(span,editBtn,emojiBtn,delBtn); markerList.appendChild(div);
+});}
+
+function addMarkerToFirebase(data){ const newRef=db.ref('markers').push(); data.id=newRef.key; newRef.set(data); }
+function removeMarker(id){ db.ref('markers/'+id).remove(); }
+function updateMarker(id,data){ db.ref('markers/'+id).update(data); }
+function openEmojiPicker(id){ emojiEditTarget=markers.find(m=>m.id===id); if(!emojiEditTarget)return; emojiPicker.classList.remove('hidden'); }
+function renderEmojiPicker(){ emojiPicker.innerHTML=''; EMOJIS.forEach(e=>{ const span=document.createElement('span'); span.textContent=e; span.onclick=()=>{
+  emojiEditTarget.data.emoji=e; emojiEditTarget.marker.setIcon(createIcon(e)); updateMarker(emojiEditTarget.id,{emoji:e}); emojiPicker.classList.add('hidden'); renderList();}; emojiPicker.appendChild(span); });}
+function openNameEditor(id){ nameEditTarget=markers.find(m=>m.id===id); if(!nameEditTarget)return; nameInput.value=nameEditTarget.data.label; nameEditor.classList.remove('hidden'); nameInput.focus();}
+saveNameBtn.onclick=()=>{ if(nameEditTarget){ nameEditTarget.data.label=nameInput.value.trim()||nameEditTarget.data.label; nameEditTarget.marker.setPopupContent(nameEditTarget.data.label); updateMarker(nameEditTarget.id,{label:nameEditTarget.data.label}); renderList(); nameEditor.classList.add('hidden'); nameEditTarget=null; } };
+
+// Добавление метки с запросом имени
+map.on('click', e=>{
+  const user = auth.currentUser;
+  if(!user){ alert('Сначала войдите'); return; }
+  const name = prompt('Название метки?');
+  if(!name)return;
+  addMarker(e.latlng.lat,e.latlng.lng,name,'');
+});
+function addMarker(lat,lng,label,address){ const marker=L.marker([lat,lng],{icon:createIcon('📍')}).addTo(map); marker.bindPopup(label);
+  const user = auth.currentUser;
+  const data={lat,lng,label,emoji:'📍',address,uid:user.uid};
+  const id='temp_'+Date.now();
+  markers.push({id,marker,data});
+  addMarkerToFirebase(data);
+  renderList();
+}
+
+// Слушатель Firebase
+db.ref('markers').on('value', snapshot=>{
+  markers.forEach(m=>map.removeLayer(m.marker)); markers=[];
+  snapshot.forEach(child=>{
+    const d=child.val(); const marker=L.marker([d.lat,d.lng],{icon:createIcon(d.emoji)}).addTo(map); marker.bindPopup(d.label);
+    markers.push({id:child.key,marker,data:d});
+  }); renderList();
+});
+
+// Поиск адреса
+let suggestTimer;
+async function fetchSuggestions(){ clearTimeout(suggestTimer); const q=addressInput.value.trim(); if(q.length<3)return hideSuggestions();
+ suggestTimer=setTimeout(async()=>{
+ const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
+ const data=await res.json(); suggestions.innerHTML='';
+ data.forEach(d=>{ const div=document.createElement('div'); div.className='suggestion'; div.textContent=d.display_name; div.onclick=()=>{ addressInput.value=d.display_name; map.setView([+d.lat,+d.lon],16); hideSuggestions(); }; suggestions.appendChild(div); }); suggestions.classList.toggle('hidden',!data.length);
+ },400);
+}
+function hideSuggestions(){ suggestions.classList.add('hidden'); }
+searchBtn.addEventListener('click',async()=>{ const q=addressInput.value.trim(); if(!q)return; const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`); const data=await res.json(); if(!data.length)return alert('Адрес не найден'); map.setView([+data[0].lat,+data[0].lon],16); });
+addressInput.addEventListener('input',fetchSuggestions);
+document.addEventListener('click', e=>{ if(!suggestions.contains(e.target)&&e.target!==addressInput) hideSuggestions(); });
+
+renderEmojiPicker();
+</script>
+</body>
+</html>
